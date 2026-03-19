@@ -30,6 +30,8 @@ import tifffile
 from scipy import ndimage as ndi
 from skimage import filters, morphology, measure, segmentation
 from skimage.filters import frangi, threshold_local, threshold_sauvola, threshold_niblack
+from skimage.feature import blob_log
+from skimage.draw import disk
 
 
 def _read_tif(path: Path) -> np.ndarray:
@@ -316,7 +318,7 @@ def segment_mitochondria(
 	closing_radius: int = 1,
 	enhance: Optional[str] = "none",
 	threshold_method: str = "percentile",
-	threshold_percentile: float = 95.0,
+	threshold_percentile: float = 98.0,
 	threshold_local_block: int = 51,
 	threshold_local_offset: float = 0.0,
 	threshold_sauvola_window: int = 25,
@@ -327,51 +329,71 @@ def segment_mitochondria(
 	gaussian_sigma: float = 0.5,
 	prune_skeleton: bool = True,
 	skeleton_min_length: int = 5,
+	min_mean_intensity: float = 0.2,
 	verbose: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray]:
 	"""Segment mitochondrial objects in the red channel.
 
 	Returns (mito_mask, mito_skeleton).
 	"""
-	# Start with a float image
+	# Normalize the input so that thresholds behave consistently across images
 	proc = ch1.astype(float)
+	if proc.max() > 0:
+		proc = proc / proc.max()
 
-	# Optionally emphasize local contrast (high intensity relative to local background)
-	if contrast_sigma > 0:
-		background = ndi.gaussian_filter(proc, sigma=contrast_sigma)
-		proc = proc - background
-		proc = np.clip(proc, 0, None)
-
-	# Optionally enhance filament-like structures
-	if enhance == "frangi":
-		proc = frangi(proc)
-
+	# Smooth to reduce noise
 	if gaussian_sigma > 0:
 		proc = ndi.gaussian_filter(proc, sigma=gaussian_sigma)
 
-	# Threshold selection
+	# Enhance local contrast (helps pick up dim filaments vs background)
+	if contrast_sigma > 0:
+		background = ndi.gaussian_filter(proc, sigma=contrast_sigma)
+		proc = proc - background
+		proc = np.clip(proc, 0, 1)
+
+	# -------- filamentous component (Frangi) --------
+	filaments = proc
+	if enhance == "frangi":
+		filaments = frangi(proc)
+
+	# Threshold the filament enhancement
 	if threshold is not None:
-		thresh = threshold
+		fil_thresh = threshold
 	elif threshold_method == "otsu":
-		thresh = filters.threshold_otsu(proc)
+		fil_thresh = filters.threshold_otsu(filaments)
 	elif threshold_method == "percentile":
-		thresh = np.percentile(proc, threshold_percentile)
-	elif threshold_method == "local":
-		thresh = threshold_local(proc, block_size=threshold_local_block, method="gaussian", offset=threshold_local_offset)
-	elif threshold_method == "sauvola":
-		thresh = threshold_sauvola(proc, window_size=threshold_sauvola_window, k=threshold_sauvola_k)
-	elif threshold_method == "niblack":
-		thresh = threshold_niblack(proc, window_size=threshold_niblack_window, k=threshold_niblack_k)
+		fil_thresh = np.percentile(filaments, threshold_percentile)
 	else:
 		raise ValueError(f"Unknown threshold_method: {threshold_method}")
 
-	mask = proc > thresh
+	mask_filaments = filaments > fil_thresh
+
+	# -------- punctate component (LoG blobs) --------
+	# Use the normalized smoothed image to detect small bright blobs.
+	blobs = blob_log(proc, min_sigma=1, max_sigma=5, num_sigma=4, threshold=0.05)
+	mask_blobs = np.zeros_like(proc, dtype=bool)
+	for y, x, sigma in blobs:
+		r = int(np.ceil(np.sqrt(2) * sigma))
+		rr, cc = disk((int(y), int(x)), r, shape=proc.shape)
+		mask_blobs[rr, cc] = True
+
+	# Combine filament and puncta masks
+	mask = mask_filaments | mask_blobs
 
 	# Clean up the mask
 	if closing_radius > 0:
 		mask = morphology.binary_closing(mask, footprint=morphology.disk(closing_radius))
 	mask = morphology.remove_small_objects(mask, min_size=min_size)
 
+	# Remove objects with very low mean intensity (likely background noise)
+	if min_mean_intensity > 0:
+		labels = measure.label(mask)
+		props = measure.regionprops(labels, intensity_image=proc)
+		for p in props:
+			if p.mean_intensity < min_mean_intensity:
+				mask[labels == p.label] = False
+
+	# Skeletonize for morphology metrics
 	skel = morphology.skeletonize(mask)
 	if prune_skeleton and skeleton_min_length > 0:
 		skel = prune_skeleton_by_length(skel, min_length=skeleton_min_length)
@@ -379,10 +401,7 @@ def segment_mitochondria(
 	skel = skel & mask
 
 	if verbose:
-		# `thresh` can be a scalar or an array (local thresholding). Report a summary.
-		thresh_arr = np.asarray(thresh)
-		thresh_summary = f"{float(np.mean(thresh_arr)):.3g} (mean)" if thresh_arr.size else "nan"
-		print(f"mito seg: method={threshold_method} threshold={thresh_summary} min_size={min_size} gauss={gaussian_sigma} prune={prune_skeleton}")
+		print(f"mito seg: fil_thresh={fil_thresh:.3g} min_size={min_size} prune={prune_skeleton} mean_intensity_cutoff={min_mean_intensity}")
 
 	return mask, skel
 
@@ -568,6 +587,7 @@ def process_file(
 	mito_gaussian_sigma: float = 0.0,
 	mito_prune_skeleton: bool = False,
 	mito_skeleton_min_length: int = 10,
+	mito_min_mean_intensity: float = 0.0,
 	mito_verbose: bool = False,
 ):
 	img = _read_tif(path)
@@ -627,6 +647,7 @@ def process_file(
 		gaussian_sigma=mito_gaussian_sigma,
 		prune_skeleton=mito_prune_skeleton,
 		skeleton_min_length=mito_skeleton_min_length,
+		min_mean_intensity=mito_min_mean_intensity,
 		verbose=mito_verbose,
 	)
 	mito_metrics = compute_mito_metrics(mito_mask, mito_skel, cell_mask)
@@ -641,10 +662,9 @@ def process_file(
 
 	out_prefix = outdir / path.stem
 	out_prefix.mkdir(parents=True, exist_ok=True)
-
-	# Skip individual segmentation visualization to save space
-	# fig_path = out_prefix / "segmentation.png"
-	# visualize(ch1_in, ch2_in, ch3_in, ch4, cell_mask, green_mask, mito_mask, mito_skel, fig_path)
+	fig_path = out_prefix / "segmentation.png"
+	# For visualization, show the channels masked by the cell so the overlay makes sense.
+	visualize(ch1_in, ch2_in, ch3_in, ch4, cell_mask, green_mask, mito_mask, mito_skel, fig_path)
 
 	csv_path = out_prefix / "stats.txt"
 	with open(csv_path, "w") as f:
@@ -845,6 +865,12 @@ def main(argv: Optional[List[str]] = None):
 		help="Minimum skeleton segment length (pixels); shorter segments are discarded",
 	)
 	parser.add_argument(
+		"--mito-min-mean-intensity",
+		type=float,
+		default=0.15,
+		help="Minimum mean normalized intensity for a mito object to be kept (0-1)",
+	)
+	parser.add_argument(
 		"--mito-threshold-local-block",
 		type=int,
 		default=51,
@@ -927,6 +953,7 @@ def main(argv: Optional[List[str]] = None):
 			mito_threshold_local_offset=args.mito_threshold_local_offset,
 			mito_gaussian_sigma=args.mito_gaussian_sigma,
 			mito_prune_skeleton=args.mito_prune_skeleton,
+			mito_min_mean_intensity=args.mito_min_mean_intensity,
 			mito_verbose=args.mito_verbose,
 		)
 		all_stats.append(stats)
