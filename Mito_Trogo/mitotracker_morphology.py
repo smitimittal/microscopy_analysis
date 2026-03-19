@@ -555,7 +555,7 @@ def process_file(
 	green_gaussian_sigma: float = 1.0,
 	green_local_bg_sigma: float = 10.0,
 	green_fixed_threshold: Optional[float] = None,
-	mito_enhance: str = "frangi",
+	mito_enhance: str = "none",
 	mito_threshold_method: str = "percentile",
 	mito_threshold_percentile: float = 90.0,
 	mito_threshold_local_block: int = 51,
@@ -651,7 +651,38 @@ def process_file(
 		for k, v in stats.items():
 			f.write(f"{k}\t{v}\n")
 
-	return stats, ch1, ch2, ch3, ch4, cell_mask, green_mask
+	return stats, ch1, ch2, ch3, ch4, cell_mask, green_mask, mito_mask
+
+
+def create_channel_montages(all_ch1, all_ch2, all_ch3, all_ch4, all_cell_masks, all_green_masks, all_mito_masks, outdir):
+	"""Create montage images for channels and masks."""
+	import math
+
+	def make_montage(images, title, filename):
+		n = len(images)
+		cols = math.ceil(math.sqrt(n))
+		rows = math.ceil(n / cols)
+		fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 4))
+		if rows == 1 and cols == 1:
+			axes = [axes]
+		else:
+			axes = axes.flatten()
+		for i, img in enumerate(images):
+			axes[i].imshow(img, cmap='gray')
+			axes[i].axis('off')
+		for i in range(n, len(axes)):
+			axes[i].axis('off')
+		fig.suptitle(title)
+		fig.savefig(outdir / filename, dpi=150, bbox_inches='tight')
+		plt.close(fig)
+
+	make_montage(all_ch1, 'Mitochondria Channel (Ch1)', 'channel1_montage.png')
+	make_montage(all_ch2, 'Orange/Red Channel (Ch2)', 'channel2_montage.png')
+	make_montage(all_ch3, 'Green Channel (Ch3)', 'channel3_montage.png')
+	make_montage(all_ch4, 'Cell Channel (Ch4)', 'channel4_montage.png')
+	make_montage(all_cell_masks, 'Cell Masks', 'cell_masks_montage.png')
+	make_montage(all_green_masks, 'Green Puncta Masks', 'green_masks_montage.png')
+	make_montage(all_mito_masks, 'Mitochondria Masks', 'mito_masks_montage.png')
 
 
 def main(argv: Optional[List[str]] = None):
@@ -762,7 +793,7 @@ def main(argv: Optional[List[str]] = None):
 		default=5.0,
 		help="Fixed threshold value for green puncta after background subtraction (same for all images)",
 	)
-	parser.add_argument("--mito-min-size", type=int, default=20, help="Minimum mitochondria size in pixels")
+	parser.add_argument("--mito-min-size", type=int, default=50, help="Minimum mitochondria size in pixels")
 	parser.add_argument(
 		"--mito-enhance",
 		type=str,
@@ -863,9 +894,10 @@ def main(argv: Optional[List[str]] = None):
 	all_ch4 = []
 	all_cell_masks = []
 	all_green_masks = []
+	all_mito_masks = []
 	for tif in tifs:
 		print(f"Processing: {tif}")
-		stats, ch1, ch2, ch3, ch4, cell_mask, green_mask = process_file(
+		stats, ch1, ch2, ch3, ch4, cell_mask, green_mask, mito_mask = process_file(
 			tif,
 			args.outdir,
 			cell_min_area=args.cell_min_area,
@@ -904,6 +936,7 @@ def main(argv: Optional[List[str]] = None):
 		all_ch4.append(ch4)
 		all_cell_masks.append(cell_mask)
 		all_green_masks.append(green_mask)
+		all_mito_masks.append(mito_mask)
 
 	summary_path = args.outdir / "summary.tsv"
 	with open(summary_path, "w") as f:
@@ -913,7 +946,51 @@ def main(argv: Optional[List[str]] = None):
 			f.write("\t".join(str(s[h]) for h in headers) + "\n")
 
 	# Create composite images
-	create_channel_montages(all_ch1, all_ch2, all_ch3, all_ch4, all_cell_masks, all_green_masks, args.outdir)
+	create_channel_montages(all_ch1, all_ch2, all_ch3, all_ch4, all_cell_masks, all_green_masks, all_mito_masks, args.outdir)
+
+	# Create plots comparing mito stats to green and red signals
+	create_mito_comparison_plots(all_stats, args.outdir)
+
+
+def create_mito_comparison_plots(all_stats, outdir):
+	"""Create scatter plots of mito stats vs normalized green and red signals."""
+	import matplotlib.pyplot as plt
+
+	# Extract data
+	green_per_area = [s['green_total_area'] / s['pixel_count'] for s in all_stats]
+	red_per_area = [s['total_intensity'] / s['pixel_count'] for s in all_stats]
+	mito_counts = [s['mito_num_mito_objects'] for s in all_stats]
+	mito_mean_area = [s['mito_mean_area'] for s in all_stats]
+	mito_total_length = [s['mito_total_skel_length'] for s in all_stats]
+
+	# Plot mito count vs green per area
+	fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+	axes[0,0].scatter(green_per_area, mito_counts)
+	axes[0,0].set_xlabel('Green Signal per Cell Area')
+	axes[0,0].set_ylabel('Number of Mitochondria')
+	axes[0,0].set_title('Mito Count vs Green Signal Density')
+
+	# Plot mito count vs red per area
+	axes[0,1].scatter(red_per_area, mito_counts)
+	axes[0,1].set_xlabel('Red Signal per Cell Area')
+	axes[0,1].set_ylabel('Number of Mitochondria')
+	axes[0,1].set_title('Mito Count vs Red Signal Density')
+
+	# Plot mito mean area vs green per area
+	axes[1,0].scatter(green_per_area, mito_mean_area)
+	axes[1,0].set_xlabel('Green Signal per Cell Area')
+	axes[1,0].set_ylabel('Mean Mito Area')
+	axes[1,0].set_title('Mito Mean Area vs Green Signal Density')
+
+	# Plot mito total length vs red per area
+	axes[1,1].scatter(red_per_area, mito_total_length)
+	axes[1,1].set_xlabel('Red Signal per Cell Area')
+	axes[1,1].set_ylabel('Total Mito Skeleton Length')
+	axes[1,1].set_title('Mito Total Length vs Red Signal Density')
+
+	plt.tight_layout()
+	fig.savefig(outdir / 'mito_comparison_plots.png', dpi=150)
+	plt.close(fig)
 
 
 if __name__ == "__main__":
