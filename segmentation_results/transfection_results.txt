@@ -1,0 +1,3 @@
+Total cells: 1122
+Transfected cells: 93
+Efficiency: 8.29%
