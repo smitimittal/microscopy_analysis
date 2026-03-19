@@ -231,6 +231,8 @@ def segment_green_puncta(
 	threshold_method: str = "otsu",
 	threshold_percentile: float = 99.5,
 	gaussian_sigma: float = 1.0,
+	local_bg_sigma: float = 10.0,
+	fixed_threshold: Optional[float] = 5.0,
 ) -> Tuple[np.ndarray, measure._regionprops.RegionProperties]:
 	"""Segment punctate green spots while ignoring extremely large green blobs."""
 
@@ -242,8 +244,16 @@ def segment_green_puncta(
 	if gaussian_sigma > 0:
 		ch3 = ndi.gaussian_filter(ch3.astype(float), sigma=gaussian_sigma)
 
-	# Allow an explicit threshold to be provided (fixed across all images)
-	if threshold is None:
+	# Subtract local background to make threshold relative
+	if local_bg_sigma > 0:
+		background = ndi.gaussian_filter(ch3, sigma=local_bg_sigma)
+		ch3 = ch3 - background
+		ch3 = np.clip(ch3, 0, None)  # Ensure non-negative
+
+	# Use fixed threshold if provided, else adaptive
+	if fixed_threshold is not None:
+		threshold = fixed_threshold
+	elif threshold is None:
 		if threshold_method == "otsu":
 			threshold = filters.threshold_otsu(ch3)
 		elif threshold_method == "percentile":
@@ -543,6 +553,8 @@ def process_file(
 	green_threshold_method: str = "percentile",
 	green_threshold_percentile: float = 99.5,
 	green_gaussian_sigma: float = 1.0,
+	green_local_bg_sigma: float = 10.0,
+	green_fixed_threshold: Optional[float] = None,
 	mito_enhance: str = "frangi",
 	mito_threshold_method: str = "percentile",
 	mito_threshold_percentile: float = 90.0,
@@ -595,6 +607,8 @@ def process_file(
 		threshold_method=green_threshold_method,
 		threshold_percentile=green_threshold_percentile,
 		gaussian_sigma=green_gaussian_sigma,
+		local_bg_sigma=green_local_bg_sigma,
+		fixed_threshold=green_fixed_threshold,
 	)
 
 	mito_mask, mito_skel = segment_mitochondria(
@@ -627,9 +641,10 @@ def process_file(
 
 	out_prefix = outdir / path.stem
 	out_prefix.mkdir(parents=True, exist_ok=True)
-	fig_path = out_prefix / "segmentation.png"
-	# For visualization, show the channels masked by the cell so the overlay makes sense.
-	visualize(ch1_in, ch2_in, ch3_in, ch4, cell_mask, green_mask, mito_mask, mito_skel, fig_path)
+
+	# Skip individual segmentation visualization to save space
+	# fig_path = out_prefix / "segmentation.png"
+	# visualize(ch1_in, ch2_in, ch3_in, ch4, cell_mask, green_mask, mito_mask, mito_skel, fig_path)
 
 	csv_path = out_prefix / "stats.txt"
 	with open(csv_path, "w") as f:
@@ -734,6 +749,18 @@ def main(argv: Optional[List[str]] = None):
 		type=float,
 		default=1.0,
 		help="Gaussian smoothing sigma before thresholding green channel",
+	)
+	parser.add_argument(
+		"--green-local-bg-sigma",
+		type=float,
+		default=10.0,
+		help="Sigma for Gaussian filter to estimate local background in green channel",
+	)
+	parser.add_argument(
+		"--green-fixed-threshold",
+		type=float,
+		default=5.0,
+		help="Fixed threshold value for green puncta after background subtraction (same for all images)",
 	)
 	parser.add_argument("--mito-min-size", type=int, default=20, help="Minimum mitochondria size in pixels")
 	parser.add_argument(
@@ -859,6 +886,8 @@ def main(argv: Optional[List[str]] = None):
 			green_threshold=args.green_threshold,
 			green_threshold_percentile=args.green_threshold_percentile,
 			green_gaussian_sigma=args.green_gaussian_sigma,
+			green_local_bg_sigma=args.green_local_bg_sigma,
+			green_fixed_threshold=args.green_fixed_threshold,
 			mito_enhance=args.mito_enhance,
 			mito_threshold_method=args.mito_threshold_method,
 			mito_threshold_percentile=args.mito_threshold_percentile,
