@@ -1,0 +1,15 @@
+file	LPS_Op_Trogo_Z1.tif
+total_intensity	1559090.0
+mean_intensity	2.6364437289574387
+pixel_count	591361
+green_puncta_count	29
+green_total_area	2942.0
+mito_num_mito_objects	296
+mito_mean_area	1034.8885135135135
+mito_median_area	63.5
+mito_num_skel_segments	226
+mito_mean_skel_length	423.3053097345133
+mito_median_skel_length	25.0
+mito_total_skel_length	95667.0
+mito_mean_distance_to_cell_center	298.80402832111554
+mito_lacunarity	{4: 1.437502946441672, 8: 1.2680205063812693, 16: 1.160210680009962, 32: 1.1093488432148546}

@@ -1,0 +1,15 @@
+file	LPS_Op_Trogo_4.tif
+total_intensity	329140.0
+mean_intensity	2.318997829946735
+pixel_count	141932
+green_puncta_count	24
+green_total_area	2926.0
+mito_num_mito_objects	63
+mito_mean_area	1087.3968253968253
+mito_median_area	126.0
+mito_num_skel_segments	63
+mito_mean_skel_length	187.26984126984127
+mito_median_skel_length	17.0
+mito_total_skel_length	11798.0
+mito_mean_distance_to_cell_center	109.99323102842378
+mito_lacunarity	{4: 7.26629148755375, 8: 6.344900484436955, 16: 5.152144051201944, 32: 4.112988349502686}

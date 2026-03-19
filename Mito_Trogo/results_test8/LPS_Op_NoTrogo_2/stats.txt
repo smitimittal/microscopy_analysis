@@ -1,0 +1,15 @@
+file	LPS_Op_NoTrogo_2.tif
+total_intensity	408650.0
+mean_intensity	3.568746288468928
+pixel_count	114508
+green_puncta_count	74
+green_total_area	2854.0
+mito_num_mito_objects	125
+mito_mean_area	426.04
+mito_median_area	176.0
+mito_num_skel_segments	101
+mito_mean_skel_length	93.39603960396039
+mito_median_skel_length	34.0
+mito_total_skel_length	9433.0
+mito_mean_distance_to_cell_center	131.73923837505828
+mito_lacunarity	{4: 8.587284439755411, 8: 6.667206921736513, 16: 4.642243145664012, 32: 3.716568175231027}
