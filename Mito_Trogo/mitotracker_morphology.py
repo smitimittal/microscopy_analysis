@@ -329,7 +329,7 @@ def segment_mitochondria(
 	gaussian_sigma: float = 0.5,
 	prune_skeleton: bool = True,
 	skeleton_min_length: int = 5,
-	min_mean_intensity: float = 0.2,
+	min_mean_intensity: float = 0.045,  # Final gentle increase for faint/diffuse mitos
 	verbose: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray]:
 	"""Segment mitochondrial objects in the red channel.
@@ -362,7 +362,8 @@ def segment_mitochondria(
 	elif threshold_method == "otsu":
 		fil_thresh = filters.threshold_otsu(filaments)
 	elif threshold_method == "percentile":
-		fil_thresh = np.percentile(filaments, threshold_percentile)
+		# Lower percentile for more permissive Frangi threshold
+		fil_thresh = np.percentile(filaments, 96.5 if threshold_percentile >= 98.0 else threshold_percentile)
 	else:
 		raise ValueError(f"Unknown threshold_method: {threshold_method}")
 
@@ -370,15 +371,20 @@ def segment_mitochondria(
 
 	# -------- punctate component (LoG blobs) --------
 	# Use the normalized smoothed image to detect small bright blobs.
-	blobs = blob_log(proc, min_sigma=1, max_sigma=5, num_sigma=4, threshold=0.05)
+	# Make a very small further sensitivity increase and expand sigma range
+	blobs = blob_log(proc, min_sigma=0.7, max_sigma=8, num_sigma=10, threshold=0.015)
 	mask_blobs = np.zeros_like(proc, dtype=bool)
 	for y, x, sigma in blobs:
 		r = int(np.ceil(np.sqrt(2) * sigma))
 		rr, cc = disk((int(y), int(x)), r, shape=proc.shape)
 		mask_blobs[rr, cc] = True
 
-	# Combine filament and puncta masks
-	mask = mask_filaments | mask_blobs
+	# Add a gentle global threshold mask for diffuse/faint mitos
+	global_mask = proc > 0.06
+	# Remove tiny objects from global mask
+	global_mask = morphology.remove_small_objects(global_mask, min_size=min_size)
+	# Combine all masks
+	mask = mask_filaments | mask_blobs | global_mask
 
 	# Clean up the mask
 	if closing_radius > 0:
@@ -587,7 +593,7 @@ def process_file(
 	mito_gaussian_sigma: float = 0.0,
 	mito_prune_skeleton: bool = False,
 	mito_skeleton_min_length: int = 10,
-	mito_min_mean_intensity: float = 0.0,
+	mito_min_mean_intensity: float = 0.10,
 	mito_verbose: bool = False,
 ):
 	img = _read_tif(path)
@@ -867,7 +873,7 @@ def main(argv: Optional[List[str]] = None):
 	parser.add_argument(
 		"--mito-min-mean-intensity",
 		type=float,
-		default=0.15,
+		default=0.10,
 		help="Minimum mean normalized intensity for a mito object to be kept (0-1)",
 	)
 	parser.add_argument(

@@ -1,0 +1,15 @@
+file	LPS_Op_TrogoPhago_4.tif
+total_intensity	1453567.0
+mean_intensity	6.539998560231803
+pixel_count	222258
+green_puncta_count	106
+green_total_area	8771.0
+mito_num_mito_objects	87
+mito_mean_area	493.735632183908
+mito_median_area	333.0
+mito_num_skel_segments	87
+mito_mean_skel_length	53.41379310344828
+mito_median_skel_length	29.0
+mito_total_skel_length	4647.0
+mito_mean_distance_to_cell_center	221.9449901796002
+mito_lacunarity	{4: 11.491964178866507, 8: 9.381085276218911, 16: 6.604260695360064, 32: 4.485627653237746}
