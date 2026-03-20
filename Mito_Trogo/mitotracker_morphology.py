@@ -314,7 +314,7 @@ def prune_skeleton_by_length(skel: np.ndarray, min_length: int = 10) -> np.ndarr
 def segment_mitochondria(
 	ch1: np.ndarray,
 	threshold: Optional[float] = None,
-	min_size: int = 5,
+	min_size: int = 3,
 	closing_radius: int = 1,
 	enhance: Optional[str] = "none",
 	threshold_method: str = "percentile",
@@ -329,7 +329,7 @@ def segment_mitochondria(
 	gaussian_sigma: float = 0.5,
 	prune_skeleton: bool = True,
 	skeleton_min_length: int = 5,
-	min_mean_intensity: float = 0.045,  # Final gentle increase for faint/diffuse mitos
+	min_mean_intensity: float = 0.05,  # Even more sensitive for dim/diffuse mitos
 	verbose: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray]:
 	"""Segment mitochondrial objects in the red channel.
@@ -363,7 +363,7 @@ def segment_mitochondria(
 		fil_thresh = filters.threshold_otsu(filaments)
 	elif threshold_method == "percentile":
 		# Lower percentile for more permissive Frangi threshold
-		fil_thresh = np.percentile(filaments, 96.5 if threshold_percentile >= 98.0 else threshold_percentile)
+		fil_thresh = np.percentile(filaments, 90.0 if threshold_percentile >= 90.0 else threshold_percentile)
 	else:
 		raise ValueError(f"Unknown threshold_method: {threshold_method}")
 
@@ -372,7 +372,7 @@ def segment_mitochondria(
 	# -------- punctate component (LoG blobs) --------
 	# Use the normalized smoothed image to detect small bright blobs.
 	# Make a very small further sensitivity increase and expand sigma range
-	blobs = blob_log(proc, min_sigma=0.7, max_sigma=8, num_sigma=10, threshold=0.015)
+	blobs = blob_log(proc, min_sigma=0.7, max_sigma=8, num_sigma=10, threshold=0.018)
 	mask_blobs = np.zeros_like(proc, dtype=bool)
 	for y, x, sigma in blobs:
 		r = int(np.ceil(np.sqrt(2) * sigma))
@@ -380,7 +380,7 @@ def segment_mitochondria(
 		mask_blobs[rr, cc] = True
 
 	# Add a gentle global threshold mask for diffuse/faint mitos
-	global_mask = proc > 0.06
+	global_mask = proc > 0.04
 	# Remove tiny objects from global mask
 	global_mask = morphology.remove_small_objects(global_mask, min_size=min_size)
 	# Combine all masks
@@ -714,7 +714,7 @@ def create_channel_montages(all_ch1, all_ch2, all_ch3, all_ch4, all_cell_masks, 
 def main(argv: Optional[List[str]] = None):
 	parser = argparse.ArgumentParser(description="Segment channels and compute morphology metrics")
 	default_input = Path(__file__).resolve().parent / ".." / "Mito_Trogo"
-	default_out = Path(__file__).resolve().parent / ".." / "Mito_Trogo" / "results"
+	default_out = Path(__file__).resolve().parent / ".." / "Mito_Trogo" / "results2"
 	parser.add_argument(
 		"--input-folder",
 		required=False,

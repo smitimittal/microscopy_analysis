@@ -1,0 +1,15 @@
+file	LPS_Op_TrogoPhago_Z1.tif
+total_intensity	557955.0
+mean_intensity	4.2184629342607645
+pixel_count	132265
+green_puncta_count	75
+green_total_area	5094.0
+mito_num_mito_objects	39
+mito_mean_area	759.5641025641025
+mito_median_area	368.0
+mito_num_skel_segments	39
+mito_mean_skel_length	94.0
+mito_median_skel_length	34.0
+mito_total_skel_length	3666.0
+mito_mean_distance_to_cell_center	144.02791869626574
+mito_lacunarity	{4: 16.554510484897413, 8: 13.465200026647238, 16: 9.751821307563288, 32: 7.156784552790614}
